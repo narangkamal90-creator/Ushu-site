@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ushu Music — Admin Upload</title>
+  <style>
+    body{background:#07121a;color:#e6eef6;font-family:Inter,system-ui,Arial;padding:18px}
+    .wrap{max-width:720px;margin:10px auto}
+    .card{background:#0f1724;padding:16px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.03)}
+    input,select,textarea,button{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:0;background:#081018;color:#e6eef6;margin-top:8px}
+    label{font-size:13px;color:#9aa4b2}
+    .row{display:flex;gap:8px}
+    .row > *{flex:1}
+    .small{font-size:13px;color:#9aa4b2}
+    .ok{color:#6ee7b7}
+    .err{color:#ff8080}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Ushu Music — Admin Upload</h2>
+
+    <!-- LOGIN -->
+    <div id="loginCard" class="card">
+      <strong>🔐 Admin Login (Simple)</strong>
+      <p class="small">Enter the admin password to unlock uploader.</p>
+      <label>Password
+        <input id="pass" type="password" placeholder="Admin password" />
+      </label>
+      <button id="loginBtn">Login</button>
+      <div id="loginMsg" class="small"></div>
+    </div>
+
+    <!-- UPLOAD PANEL -->
+    <div id="panel" style="display:none">
+      <div class="card">
+        <strong>📤 Upload Asset</strong>
+        <p class="small">Fill fields and choose file. Allowed file types depend on Storage settings.</p>
+
+        <label>Video ID (YouTube videoId or internal id)
+          <input id="videoId" placeholder="e.g. dQw4w9WgXcQ" />
+        </label>
+
+        <label>Asset Type
+          <select id="assetType">
+            <option value="image">Image</option>
+            <option value="thumbnail">Thumbnail</option>
+            <option value="audio">Audio</option>
+            <option value="effect">Effect (audio)</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+
+        <label>Title
+          <input id="assetTitle" placeholder="Short title (required)" />
+        </label>
+
+        <label>Description
+          <textarea id="assetDesc" rows="3" placeholder="Optional description"></textarea>
+        </label>
+
+        <label>Select file
+          <input id="fileInput" type="file" />
+        </label>
+
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button id="uploadBtn">Upload & Save</button>
+          <button id="clearBtn" style="background:#334155">Clear</button>
+        </div>
+
+        <p id="status" class="small"></p>
+      </div>
+
+      <div class="card">
+        <strong>📂 Recent uploads (last 20)</strong>
+        <div id="recent" class="small">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase modular SDK (v10+) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-storage.js";
+
+    // ---------- REPLACE with your Firebase config (already provided earlier) ----------
+    const firebaseConfig = {
+      apiKey: "AIzaSyDRie7jgZ663GR_qiRL-ZSuMapRCSVsncE",
+      authDomain: "ushu-music-site.firebaseapp.com",
+      projectId: "ushu-music-site",
+      storageBucket: "ushu-music-site.firebasestorage.app",
+      messagingSenderId: "1049429943344",
+      appId: "1:1049429943344:web:2266aaa2ad2342cf4479f5",
+      measurementId: "G-17TXD4QNVS"
+    };
+    // ----------------------------------------------------------------------------------
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+
+    // SIMPLE PASSWORD (client-side) — change below if you want
+    const ADMIN_PASSWORD = "12345";
+
+    // DOM
+    const loginBtn = document.getElementById('loginBtn');
+    const passEl = document.getElementById('pass');
+    const loginMsg = document.getElementById('loginMsg');
+    const panel = document.getElementById('panel');
+    const status = document.getElementById('status');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const recentEl = document.getElementById('recent');
+
+    loginBtn.addEventListener('click', () => {
+      if (passEl.value === ADMIN_PASSWORD) {
+        document.getElementById('loginCard').style.display = 'none';
+        panel.style.display = 'block';
+        loadRecent();
+      } else {
+        loginMsg.textContent = 'Wrong password';
+        loginMsg.className = 'small err';
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      document.getElementById('videoId').value = '';
+      document.getElementById('assetTitle').value = '';
+      document.getElementById('assetDesc').value = '';
+      document.getElementById('fileInput').value = '';
+      status.textContent = '';
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      status.textContent = 'Checking...';
+      const vid = document.getElementById('videoId').value.trim();
+      const type = document.getElementById('assetType').value;
+      let title = document.getElementById('assetTitle').value.trim();
+      const desc = document.getElementById('assetDesc').value.trim();
+      const file = document.getElementById('fileInput').files[0];
+      if (!vid) { status.textContent = 'Enter video ID'; return; }
+      if (!title) { status.textContent = 'Enter title'; return; }
+      if (!file) { status.textContent = 'Select a file'; return; }
+
+      try {
+        status.textContent = 'Uploading file to Firebase Storage...';
+        const timestamp = Date.now();
+        const path = `assets/${vid}/${timestamp}_${file.name}`;
+        const storageRef = ref(storage, path);
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+
+        status.textContent = 'Saving metadata to Firestore...';
+        const docRef = await addDoc(collection(db, 'videos', vid, 'assets'), {
+          title, desc, type, url, filename: file.name, path, createdAt: serverTimestamp()
+        });
+
+        status.textContent = '✔ Uploaded and saved';
+        // refresh recent list
+        loadRecent();
+        // clear file input
+        document.getElementById('fileInput').value = '';
+      } catch (err) {
+        console.error(err);
+        status.textContent = 'Upload error: ' + (err.message || err);
+      }
+    });
+
+    // Load recent uploads (global across videos) — last 20
+    async function loadRecent(){
+      recentEl.textContent = 'Loading…';
+      try {
+        // We will query across collections by using a collectionGroup
+        // BUT collectionGroup requires security rules; easiest: list from a top-level 'uploads' collection too.
+        // To keep it simple, we'll show latest docs from a top-level "recentUploads" collection if it exists,
+        // otherwise we query a single video's assets. We'll attempt to read 'recentUploads' for convenience.
+        const q = query(collection(db, 'recentUploads'), orderBy('createdAt', 'desc'), limit(20));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          recentEl.innerHTML = '<div class="small">No recent uploads found.</div>';
+          return;
+        }
+        let html = '';
+        snap.forEach(d => {
+          const data = d.data();
+          html += `<div style="margin-bottom:8px"><b>${escapeHtml(data.title||data.filename||'—')}</b> <div class="small">${escapeHtml(data.type||'')}</div><div><a href="${data.url}" target="_blank">Open</a></div></div>`;
+        });
+        recentEl.innerHTML = html;
+      } catch (e) {
+        console.warn('recent load failed', e);
+        recentEl.innerHTML = '<div class="small">Recent list not available. (Optional collection missing)</div>';
+      }
+    }
+
+    function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  </script>
+</body>
+</html>
